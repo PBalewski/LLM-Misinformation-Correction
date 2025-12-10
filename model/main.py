@@ -18,29 +18,28 @@ from tqdm import tqdm
 from newsplease import NewsPlease
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
-import preprocessor as p
-p.set_options(p.OPT.URL, p.OPT.RESERVED, p.OPT.EMOJI, p.OPT.SMILEY)
+# import preprocessor as p
+# p.set_options(p.OPT.URL, p.OPT.RESERVED, p.OPT.EMOJI, p.OPT.SMILEY)
 import warnings
 warnings.filterwarnings('ignore')
 import os
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-from openai import OpenAI
+from google import genai
 
 
-def gpt(api_key, prompt):
-    max_retries = 20
+def gemini(api_key, prompt):
+    max_retries = 2
     curr_tries = 1
     while curr_tries <= max_retries:
         try:
-            client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model='gpt-4',
-                messages=[{'role': 'user', 'content': prompt}],
-                temperature=0,
-                timeout=10
+            client = genai.Client(api_key=api_key)
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
             )
-            message = response.choices[0].message.content
-            return message
+            
+            return response.text
         except Exception as e:
             print('\t'+str(e))
             curr_tries += 1
@@ -49,73 +48,25 @@ def gpt(api_key, prompt):
     return ''
 
 
-def query_generation(tweet, llm_key):
-    # Prepare tweet data
-    def um_tweet_prep(tweet_text, tweet_user, tweet_time):
-        if "yesterday" in tweet_text.lower():
-            yesterdate = str(tweet_time - timedelta(days=1)).split(' ')[0]
+def query_generation(news, llm_key):
+    # Prepare news data
+    def news_prep(news_category, news_text):
+        return f'news category: {news_category}, content: {news_text}'
 
-            insensitive_yesterday = re.compile(re.escape("yesterday"), re.IGNORECASE)
-            tweet_text = insensitive_yesterday.sub('on ' + yesterdate, tweet_text)
+    news_content = news_prep(news['CATEGORY'], news['TEXT'])
 
-        insensitive_tweet_text = tweet_text.translate(str.maketrans('', '', string.punctuation))
-        insensitive_words = insensitive_tweet_text.lower().split()
-        if "i" in insensitive_words and "breaking" in insensitive_words:
-            todate = str(tweet_time - timedelta(days=0)).split(' ')[0]
-            return tweet_text + ' (Tweeted by ' + tweet_user + ' on ' + todate + ')'
-        elif "i" in insensitive_words:
-            return tweet_text + ' (Tweeted by ' + tweet_user + ')'
-        elif "breaking" in insensitive_words:
-            todate = str(tweet_time - timedelta(days=0)).split(' ')[0]
-            return tweet_text + ' (Tweeted on ' + todate + ')'
-        else:
-            return tweet_text
-
-    def mm_tweet_prep(tweet_text, tweet_img2text, tweet_user, tweet_time):
-        if "yesterday" in tweet_text.lower():
-            yesterdate = str(tweet_time - timedelta(days=1)).split(' ')[0]
-
-            insensitive_yesterday = re.compile(re.escape("yesterday"), re.IGNORECASE)
-            tweet_text = insensitive_yesterday.sub('on ' + yesterdate, tweet_text)
-
-        insensitive_tweet_text = tweet_text.translate(str.maketrans('', '', string.punctuation))
-        insensitive_words = insensitive_tweet_text.lower().split()
-        if "i" in insensitive_words and "breaking" in insensitive_words:
-            todate = str(tweet_time - timedelta(days=0)).split(' ')[0]
-            return tweet_text + ' (Tweeted by ' + tweet_user + ' on ' + todate + '. Attached images: ' + tweet_img2text + ')'
-        elif "i" in insensitive_words:
-            return tweet_text + ' (Tweeted by ' + tweet_user + '. Attached images: ' + tweet_img2text + ')'
-        elif "breaking" in insensitive_words:
-            todate = str(tweet_time - timedelta(days=0)).split(' ')[0]
-            return tweet_text + ' (Tweeted on ' + todate + '. Attached images: ' + tweet_img2text + ')'
-        else:
-            return tweet_text + ' (Attached images: ' + tweet_img2text + ')'
-
-    post_content = ''
-    if tweet['tweet_modality'] == 'unimodal':
-        post_content = um_tweet_prep(p.clean(tweet['tweet_text']),
-                                     tweet['user_name'],
-                                     datetime.strptime(tweet['created_time'], '%Y-%m-%d %H:%M:%S'))
-        # Load the prompt template
-        with open('data/prompt_query_generation_unimodal.txt', 'r') as f:
-            prompt_format = f.read()
-    elif tweet['tweet_modality'] == 'multimodal':
-        post_content = mm_tweet_prep(p.clean(tweet['tweet_text']),
-                                     ' '.join(tweet['tweet_image2text']),
-                                     tweet['user_name'],
-                                     datetime.strptime(tweet['created_time'], '%Y-%m-%d %H:%M:%S'))
-        # Load the prompt template
-        with open('data/prompt_query_generation_multimodal.txt', 'r') as f:
-            prompt_format = f.read()
+    # Load the prompt template
+    with open('data/prompt_query_generation_unimodal.txt', 'r') as f:
+        prompt_format = f.read()
     # Prepare the prompt
-    prompt = prompt_format.replace('[POST_CONTENT]', post_content)
-    # Generate queries with GPT-4
-    response = gpt(llm_key, prompt)
+    prompt = prompt_format.replace('[NEWS_CONTENT]', news_content)
+    # Generate queries with Gemini
+    response = gemini(llm_key, prompt)
 
     return response
 
 
-def query_search(api_key, search_engine_id, tweet, domain_priority):
+def query_search(api_key, search_engine_id, news, domain_priority):
     def google_programmable_search(api_key, search_engine_id, query):
         params = {'key': api_key, 'cx': search_engine_id, 'q': query}
         search = requests.get("https://www.googleapis.com/customsearch/v1", params=params)
@@ -123,7 +74,7 @@ def query_search(api_key, search_engine_id, tweet, domain_priority):
         return results
 
     search_results = {}
-    queries = tweet["queries"]
+    queries = news["queries"]
     # No queries, return {}
     if queries in ["NONE", "\"NONE\""]:
         return search_results
@@ -233,19 +184,7 @@ def article_crawler(article_urls, driver):
     return searched_articles
 
 
-def filter_search_results_by_time(tweet, searched_articles):
-    filtered_searched_articles = []
-
-    time_threshold = datetime.strptime(tweet['created_time'], '%Y-%m-%d %H:%M:%S')
-    for article in searched_articles:
-        time_article = datetime.strptime(str(article['date_publish']), '%Y-%m-%d %H:%M:%S')
-        if (time_threshold - time_article).total_seconds() > 0:
-            filtered_searched_articles.append(article)
-
-    return filtered_searched_articles
-
-
-def compute_unimodal_sims(tweet, article):
+def compute_unimodal_sims(news, article):
     def get_text_sim(model, text_1, text_2):
         embeds_1 = model.encode(text_1, convert_to_tensor=True).cpu()
         embeds_2 = model.encode(text_2, convert_to_tensor=True).cpu()
@@ -254,7 +193,7 @@ def compute_unimodal_sims(tweet, article):
     articleUrl_textSim = {article['url']: float(-1)}
 
     text_sim = get_text_sim(SentenceTransformer('msmarco-distilbert-base-tas-b'),
-                            p.clean(tweet['tweet_text']), article['maintext'])
+                            news['TEXT'], article['maintext'])
     articleUrl_textSim[article['url']] = text_sim
 
     return articleUrl_textSim
@@ -287,70 +226,26 @@ def filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim, searched_a
     return filtered_searched_articles
 
 
-def evidence_extraction(tweet, article, llm_key):
+def evidence_extraction(news, article, llm_key):
     output = ([], [])
 
-    tweet_text = p.clean(tweet['tweet_text'])
-    tweet_user = tweet['user_name']
-    tweet_time = tweet['created_time']
-    tweet_user_id = '@' + tweet['user_screen_name']
-    tweet_user_description = tweet['user_description']
+    news_category = news['CATEGORY']
+    news_text = news['TEXT']
 
     article_content = article['maintext']
     article_time = str(article['date_publish'])
     article_url = article['url']
 
     prompt = ''
-    if tweet['tweet_modality'] == 'multimodal':
+    # Use the first max_chars characters
+    article_content = article_content[:20000]
 
-        tweet_img2text = ' '.join(tweet['tweet_image2text'])
+    with open('data/prompt_evidence_extraction.txt', 'r') as f:
+        prompt_format = f.read()
+    prompt = prompt_format.replace('[ARTICLE_CONTENT]', article_content)
+    prompt = prompt.replace('[NEWS_CONTENT]', f'news category: {news_category}, content: {news_text}')
 
-        # Use the first max_chars characters
-        article_content = article_content[:20000]
-
-        with open('data/prompt_evidence_extraction.txt', 'r') as f:
-            prompt_format = f.read()
-        prompt = prompt_format.replace('[ARTICLE_CONTENT]', article_content)
-
-        if article_time != '':
-            prompt = prompt.replace('[ARTICLE_PUBLISH_DATE]', ' (published on ' + article_time + ')')
-        else:
-            prompt = prompt.replace('[ARTICLE_PUBLISH_DATE]', '')
-
-        if tweet_user_description != '':
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + '. User description: {' + tweet_user_description + '})' +
-                                    '\n(Tweeted on ' + tweet_time + ')' +
-                                    '\n(Attached images: {' + tweet_img2text + '})')
-        else:
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + ')' +
-                                    '\n(Tweeted on ' + tweet_time + ')' +
-                                    '\n(Attached images: {' + tweet_img2text + '})')
-
-    elif tweet['tweet_modality'] == 'unimodal':
-        # Use the first max_chars characters
-        article_content = article_content[:20000]
-
-        with open('data/prompt_evidence_extraction.txt', 'r') as f:
-            prompt_format = f.read()
-        prompt = prompt_format.replace('[ARTICLE_CONTENT]', article_content)
-
-        if article_time != '':
-            prompt = prompt.replace('[ARTICLE_PUBLISH_DATE]', ' (published on ' + article_time + ')')
-        else:
-            prompt = prompt.replace('[ARTICLE_PUBLISH_DATE]', '')
-
-        if tweet_user_description != '':
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + '. User description: {' + tweet_user_description + '})' +
-                                    '\n(Tweeted on ' + tweet_time + ")")
-        else:
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + ')' +
-                                    '\n(Tweeted on ' + tweet_time + ')')
-
-    evidence = gpt(llm_key, prompt)
+    evidence = gemini(llm_key, prompt)
     print("\t(sent 1 request to llm)")
 
     if 'explicit refutation' in evidence.lower() and 'implicit refutation' in evidence.lower():
@@ -397,7 +292,7 @@ def evidence_extraction(tweet, article, llm_key):
     return output
 
 
-def correction_generation(tweet, list_of_evidences, list_of_refute_evidences, llm_key):
+def correction_generation(news, list_of_evidences, list_of_refute_evidences, llm_key):
     if len(list_of_refute_evidences) == 0:
         with open('data/prompt_correction_generation_without_retrieval.txt', 'r') as f:
             prompt = f.read()
@@ -406,37 +301,12 @@ def correction_generation(tweet, list_of_evidences, list_of_refute_evidences, ll
             prompt = f.read()
         prompt = prompt.replace('[RELEVANT_FACTS]', '\n'.join(list_of_evidences))
 
-    tweet_text = p.clean(tweet['tweet_text'])
-    tweet_user = tweet['user_name']
-    tweet_time = tweet['created_time']
-    tweet_user_id = '@' + tweet['user_screen_name']
-    tweet_user_description = tweet['user_description']
+    news_category = news['CATEGORY']
+    news_text = news['TEXT']
 
-    if tweet['tweet_modality'] == 'multimodal':
-        tweet_img2text = ' '.join(tweet['tweet_image2text'])
+    prompt.replace('[NEWS_CONTENT]', f'news category: {news_category}, content: {news_text}')
 
-        if tweet_user_description != '':
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + '. User description: {' + tweet_user_description + '})' +
-                                    '\n(Tweeted on ' + tweet_time + ')' +
-                                    '\n(Attached images: {' + tweet_img2text + '})')
-        else:
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + ')' +
-                                    '\n(Tweeted on ' + tweet_time + ')' +
-                                    '\n(Attached images: {' + tweet_img2text + '})')
-
-    elif tweet['tweet_modality'] == 'unimodal':
-        if tweet_user_description != '':
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + '. User description: {' + tweet_user_description + '})' +
-                                    '\n(Tweeted on ' + tweet_time + ')')
-        else:
-            prompt = prompt.replace('[TWEET_CONTENT]', tweet_text +
-                                    '\n(Tweeted by ' + tweet_user + '. User ID: ' + tweet_user_id + ')' +
-                                    '\n(Tweeted on ' + tweet_time + ')')
-
-    return gpt(llm_key, prompt)
+    return gemini(llm_key, prompt)
 
 
 def get_article_publish_date(article):
@@ -444,19 +314,20 @@ def get_article_publish_date(article):
 
 
 if __name__ == '__main__':
-    TEST_TWEET_ID = '1621717259449257984'
-    INPUT_DATA_FILE = 'data/tweets_unimodal.csv'
+    TEST_NEWS_ID = '1'
+    data_file_id = '1QSZ8WRe2747lzueN5vkDP3ohbJavUNCH'
+    download_url = f'https://drive.google.com/uc?export=download&id={data_file_id}'
 
-    data = pd.read_csv(INPUT_DATA_FILE, dtype=str)
+    # Read the file
+    data = pd.read_csv(download_url, dtype=str, encoding='latin-1')
     data = data.fillna('')
 
-    instance = data[data['tweet_id'] == TEST_TWEET_ID].to_dict('records')[0]
-    instance['tweet_modality'] = INPUT_DATA_FILE.split('/')[1].split('.')[0].split('_')[1]
+    instance = data[data['ID'] == TEST_NEWS_ID].to_dict('records')[0]
 
     # Load API keys
     with open('data/api_keys.json', 'r') as f:
         api_keys = json.load(f)
-    llm_key = api_keys['OpenAI']
+    llm_key = api_keys['gemini']
     # llm_key = api_keys['HuggingFace']
     serpapi_key = api_keys['SerpAPI']
     gsearch_key = api_keys['GoogleSearch']['Key']
@@ -471,23 +342,61 @@ if __name__ == '__main__':
     multiprocessing.set_start_method('spawn')
     pool = multiprocessing.Pool(processes=5)
 
-    #### When misinformation is unimodal ####
-    if instance['tweet_modality'] == 'unimodal':
+    print('Start correcting news')
 
-        print('Start correcting unimodal misinformation...')
+    print('Generate queries from misinformation...')
+    instance['queries'] = query_generation(instance, llm_key)
 
-        print('Generate queries from misinformation...')
-        instance['queries'] = query_generation(instance, llm_key)
+    refute_evidences, context_evidences = set(), set()
+    for domain_priority in ['High', 'Medium', 'Low']:
+        print('Search web pages with ' + domain_priority + ' priority...')
+        search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority+'-Priority'], instance, domain_priority)
+
+        print('Start selecting retrieved web pages...')
+
+        # Filtered based on their similarities with the query
+        filtered_search_links = filter_search_results_by_query_sim(search_results, 3)
+
+        print('Extract retrieved web page content...')
+        searched_articles = article_crawler(filtered_search_links, driver)
+        if searched_articles == []:
+            print('\t(no article found)')
+            continue
+
+        # Filtered based on their similarities with the misinfo content
+        print('Compute the similarity between web page and misinformation content...')
+        params = [(instance, article) for article in searched_articles]
+        list_of_articleUrl_textSim = pool.starmap(compute_unimodal_sims, params)
+        final_searched_articles = filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim, searched_articles)
+        if final_searched_articles == []:
+            print('\t(no article qualified based on similarity)')
+            continue
+
+        print('Extract evidence from selected web pages...')
+        params = [(instance, article, llm_key) for article in final_searched_articles]
+        evidences = pool.starmap(evidence_extraction, params)
+
+        for refute_evidence, context_evidence in evidences:
+            refute_evidences = refute_evidences.union(set(refute_evidence))
+            context_evidences = context_evidences.union(set(context_evidence))
+
+        if len(refute_evidences) >= 3:
+            print('\t(stop with sufficient refutations)')
+            break
+
+    if len(refute_evidences) == 0:
+        print('\nExtend web search due to no refutations...')
 
         refute_evidences, context_evidences = set(), set()
         for domain_priority in ['High', 'Medium', 'Low']:
             print('Search web pages with ' + domain_priority + ' priority...')
-            search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority+'-Priority'], instance, domain_priority)
+            search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority + '-Priority'],
+                                            instance, domain_priority)
 
             print('Start selecting retrieved web pages...')
 
             # Filtered based on their similarities with the query
-            filtered_search_links = filter_search_results_by_query_sim(search_results, 3)
+            filtered_search_links = filter_search_results_by_query_sim(search_results, 10)
 
             print('Extract retrieved web page content...')
             searched_articles = article_crawler(filtered_search_links, driver)
@@ -495,18 +404,12 @@ if __name__ == '__main__':
                 print('\t(no article found)')
                 continue
 
-            # Filtered based on their publication times
-            # Used to simulate correcting misinfo immediately after its appearance
-            filtered_searched_articles = filter_search_results_by_time(instance, searched_articles)
-            if filtered_searched_articles == []:
-                print('\t(no article qualified based on time)')
-                continue
-
             # Filtered based on their similarities with the misinfo content
             print('Compute the similarity between web page and misinformation content...')
-            params = [(instance, article) for article in filtered_searched_articles]
+            params = [(instance, article) for article in searched_articles]
             list_of_articleUrl_textSim = pool.starmap(compute_unimodal_sims, params)
-            final_searched_articles = filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim, filtered_searched_articles)
+            final_searched_articles = filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim,
+                                                                            searched_articles)
             if final_searched_articles == []:
                 print('\t(no article qualified based on similarity)')
                 continue
@@ -523,71 +426,22 @@ if __name__ == '__main__':
                 print('\t(stop with sufficient refutations)')
                 break
 
-        if len(refute_evidences) == 0:
-            print('\nExtend web search due to no refutations...')
+    refute_evidences = list(refute_evidences)
+    context_evidences = list(context_evidences)
 
-            refute_evidences, context_evidences = set(), set()
-            for domain_priority in ['High', 'Medium', 'Low']:
-                print('Search web pages with ' + domain_priority + ' priority...')
-                search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority + '-Priority'],
-                                              instance, domain_priority)
+    instance['refute_evidence'] = refute_evidences
+    instance['context_evidence'] = context_evidences
 
-                print('Start selecting retrieved web pages...')
+    evidences = refute_evidences + context_evidences
 
-                # Filtered based on their similarities with the query
-                filtered_search_links = filter_search_results_by_query_sim(search_results, 10)
+    print('Generate correction with ' + str(len(refute_evidences)) + ' refutations...')
+    instance['correction'] = correction_generation(instance, evidences, refute_evidences, llm_key)
 
-                print('Extract retrieved web page content...')
-                searched_articles = article_crawler(filtered_search_links, driver)
-                if searched_articles == []:
-                    print('\t(no article found)')
-                    continue
-
-                # Filtered based on their publication times
-                # Used to simulate correcting misinfo immediately after its appearance
-                filtered_searched_articles = filter_search_results_by_time(instance, searched_articles)
-                if filtered_searched_articles == []:
-                    print('\t(no article qualified based on time)')
-                    continue
-
-                # Filtered based on their similarities with the misinfo content
-                print('Compute the similarity between web page and misinformation content...')
-                params = [(instance, article) for article in filtered_searched_articles]
-                list_of_articleUrl_textSim = pool.starmap(compute_unimodal_sims, params)
-                final_searched_articles = filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim,
-                                                                                filtered_searched_articles)
-                if final_searched_articles == []:
-                    print('\t(no article qualified based on similarity)')
-                    continue
-
-                print('Extract evidence from selected web pages...')
-                params = [(instance, article, llm_key) for article in final_searched_articles]
-                evidences = pool.starmap(evidence_extraction, params)
-
-                for refute_evidence, context_evidence in evidences:
-                    refute_evidences = refute_evidences.union(set(refute_evidence))
-                    context_evidences = context_evidences.union(set(context_evidence))
-
-                if len(refute_evidences) >= 3:
-                    print('\t(stop with sufficient refutations)')
-                    break
-
-        refute_evidences = list(refute_evidences)
-        context_evidences = list(context_evidences)
-
-        instance['refute_evidence'] = refute_evidences
-        instance['context_evidence'] = context_evidences
-
-        evidences = refute_evidences + context_evidences
-
-        print('Generate correction with ' + str(len(refute_evidences)) + ' refutations...')
-        instance['correction'] = correction_generation(instance, evidences, refute_evidences, llm_key)
-
-    with open('data/output/' + instance["tweet_id"] + ".json", 'w') as f:
+    with open('data/output/' + instance["ID"] + ".json", 'w') as f:
         json.dump(instance, f, indent=4, sort_keys=True)
 
     print()
-    print(instance['tweet_id'])
+    print(instance['ID'])
     print(instance['correction'])
 
     driver.quit()
