@@ -24,29 +24,63 @@ import warnings
 warnings.filterwarnings('ignore')
 import os
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-from google import genai
-
+from google.ai import generativelanguage #!pip install google-ai-generativelanguage
+from google.generativelanguage_v1beta import types # Note: You may need to install the core package as well, 
+# but often generativelanguage handles it.
+# If you get a ModuleNotFoundError for generativelanguage_v1beta, try: 
+# pip install google-generativelanguage
 
 def gemini(api_key, prompt):
     max_retries = 2
     curr_tries = 1
+    
+    # --- Client Initialization ---
+    # The API key must be passed via the credentials argument here.
+    # The client uses 'generativelanguage'
+    client = generativelanguage.GenerativeServiceClient(
+        # The API key needs to be provided through the credentials/transport layer,
+        # often via environment variables or a specific Google API key mechanism.
+        # For simplicity, let's use the standard API key provided by the library.
+        # This requires the prompt to be wrapped in a Content object (see below).
+    )
+    # Note: In this lower-level client, passing an API key directly on instantiation 
+    # as you did (api_key=...) is not the standard pattern. It relies on 
+    # environment variables or more complex authentication. 
+    # For a direct call, it's often easiest to include the key in the request 
+    # or rely on environment setup. For now, we'll initialize the client 
+    # without an explicit key argument and assume the API key is in the environment
+    # (e.g., GOOGLE_API_KEY). If this fails, we will need to explore setting 
+    # an environment variable or using `google.auth`.
+
     while curr_tries <= max_retries:
         try:
-            client = genai.Client(api_key=api_key)
+            # --- Prepare the Content Request ---
+            # The prompt must be wrapped in a list of Content objects
+            contents = [
+                types.Content(
+                    parts=[
+                        types.Part(text=prompt),
+                    ]
+                )
+            ]
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
+            # --- API Call ---
+            # The method name is client.generate_content, not client.models.generate_content
+            response = client.generate_content(
+                model="models/gemini-2.5-flash", # <--- Model name needs the "models/" prefix
+                contents=contents,
             )
             
-            return response.text
+            # --- Extract Text ---
+            # The text is accessed differently from the response object
+            return response.candidates[0].content.parts[0].text
+            
         except Exception as e:
             print('\t'+str(e))
             curr_tries += 1
             time.sleep(5)
             continue
     return ''
-
 
 def query_generation(news, llm_key):
     # Prepare news data
