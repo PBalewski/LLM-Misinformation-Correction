@@ -1,0 +1,40 @@
+# Core NLP / ML
+torch>=2.1,<2.4
+torchaudio>=2.1,<2.4
+torchvision>=0.15,<0.17
+transformers>=4.35,<4.42
+sentence-transformers>=2.2,<3.0
+safetensors>=0.3,<1.0
+tokenizers>=0.13,<0.15
+
+# Web scraping / automation
+serpapi==0.1.5
+news-please>=1.6
+selenium>=4.15
+beautifulsoup4>=4.12
+lxml>=4.9
+requests>=2.28,<3.0
+requests-file>=1.5,<3.0
+
+# Image / parsing
+Pillow>=10,<12
+readability-lxml>=0.8.1
+
+# Google GenAI
+google-genai>=1.50,<2.0
+google-auth>=2.45,<3.0
+
+# Utilities
+numpy>=1.24,<2.0
+pandas>=2.0,<3.0
+scikit-learn>=1.2,<2.0
+scipy>=1.10,<2.0
+tqdm>=4.65,<5.0
+regex>=2022.10,<2026.0
+packaging>=23.0,<26.0
+
+# Optional / nice-to-have
+lxml-html-clean>=0.4.0
+soupsieve>=2.4,<3.0
+tzdata>=2025.0
+typing-extensions>=4.7,<5.0
