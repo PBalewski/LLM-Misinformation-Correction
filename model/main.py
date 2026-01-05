@@ -12,19 +12,25 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer, util
 from transformers import AutoFeatureExtractor, AutoModel
 import multiprocessing
-from serpapi import GoogleSearch
+
+# from serpapi import GoogleSearch  # type: ignore
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 from newsplease import NewsPlease
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
+
 # import preprocessor as p
 # p.set_options(p.OPT.URL, p.OPT.RESERVED, p.OPT.EMOJI, p.OPT.SMILEY)
 import warnings
+
 warnings.filterwarnings('ignore')
 import os
+
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 from google import genai
+
+DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
 def gemini(api_key, prompt):
@@ -38,10 +44,10 @@ def gemini(api_key, prompt):
                 model="gemini-2.5-flash",
                 contents=prompt,
             )
-            
+
             return response.text
         except Exception as e:
-            print('\t'+str(e))
+            print('\t' + str(e))
             curr_tries += 1
             time.sleep(5)
             continue
@@ -56,8 +62,10 @@ def query_generation(news, llm_key):
     news_content = news_prep(news['CATEGORY'], news['TEXT'])
 
     # Load the prompt template
-    with open('data/prompt_query_generation_unimodal.txt', 'r') as f:
+    prompt_path = os.path.join(DIR_PATH, 'data', 'prompt_query_generation_unimodal.txt')
+    with open(prompt_path, 'r') as f:
         prompt_format = f.read()
+
     # Prepare the prompt
     prompt = prompt_format.replace('[NEWS_CONTENT]', news_content)
     # Generate queries with Gemini
@@ -78,15 +86,21 @@ def query_search(api_key, search_engine_id, news, domain_priority):
     # No queries, return {}
     if queries in ["NONE", "\"NONE\""]:
         return search_results
+
     # Otherwise, [query_1, query_2, ...]
     queries = queries.split('\n')
-    queries = [q for q in queries if len(q)>0 and q[0] in ['1', '2', '3']]
+    queries = [q for q in queries if len(q) > 0 and q[0] in ['1', '2', '3']]
     # print('---------query---------')
+
     for x, query_x in enumerate(queries):
         qx = ' '.join(query_x.split(' ')[1:])
         # print(qx)
         qx = qx.translate(str.maketrans('', '', string.punctuation))
-        save_file = 'data/web_search_text/'+qx+'_'+domain_priority+'.json'
+        save_file = os.path.join(DIR_PATH, 'data', 'web_search_text', f'{qx}_{domain_priority}.json')
+
+        # Make sure that directory exists
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
+
         # If the search results have not been saved, do web search. Otherwise, load the search results
         if not os.path.exists(save_file):
             with open(save_file, 'w') as f:
@@ -107,13 +121,14 @@ def query_search(api_key, search_engine_id, news, domain_priority):
 
 
 def filter_search_results_by_domain(search_results, domain_priority, page_num=-1):
-    with open('data/publisher_priority_' + domain_priority.lower() + '.txt', 'r') as f:
+    file_path = os.path.join(DIR_PATH, 'data', f'publisher_priority_{domain_priority.lower()}.txt')
+    with open(file_path, 'r') as f:
         selected_domains = f.read().split('\n')
 
     if page_num == -1:
         sr = search_results
     else:
-        sr = search_results['page_' + str(page_num+1)]
+        sr = search_results['page_' + str(page_num + 1)]
 
     filtered_search_links = set()
     for results in sr.values():
@@ -140,7 +155,7 @@ def article_crawler(article_urls, driver):
 
     searched_articles = []
 
-    articles_json = 'data/web_page_content.json'
+    articles_json = os.path.join(DIR_PATH, 'data', 'web_page_content.json')
     if not os.path.exists(articles_json):
         with open(articles_json, 'w') as f:
             json.dump({}, f)
@@ -164,16 +179,27 @@ def article_crawler(article_urls, driver):
                 json.dump(saved_articles, f, sort_keys=True, default=str, indent=4)
 
         # Process the content
-        if article['maintext'] and len(article['maintext'].split()) >= 100 and article['date_publish'] and article['language'] == 'en':
+        if (
+            article['maintext']
+            and len(article['maintext'].split()) >= 100
+            and article['date_publish']
+            and article['language'] == 'en'
+        ):
             # Remove the duplicate content
             flag = 0
             for searched_article in searched_articles:
                 curr_article_time = datetime.strptime(str(article['date_publish']), '%Y-%m-%d %H:%M:%S')
                 ref_article_time = datetime.strptime(str(searched_article['date_publish']), '%Y-%m-%d %H:%M:%S')
-                if article['maintext'] in searched_article['maintext'] and (curr_article_time - ref_article_time).total_seconds() >= 0:
+                if (
+                    article['maintext'] in searched_article['maintext']
+                    and (curr_article_time - ref_article_time).total_seconds() >= 0
+                ):
                     flag = 1
                     break
-                elif searched_article["maintext"] in article["maintext"] and (ref_article_time - curr_article_time).total_seconds() >= 0:
+                elif (
+                    searched_article["maintext"] in article["maintext"]
+                    and (ref_article_time - curr_article_time).total_seconds() >= 0
+                ):
                     searched_articles.remove(searched_article)
                     searched_articles.append(article)
                     flag = 1
@@ -192,8 +218,7 @@ def compute_unimodal_sims(news, article):
 
     articleUrl_textSim = {article['url']: float(-1)}
 
-    text_sim = get_text_sim(SentenceTransformer('msmarco-distilbert-base-tas-b'),
-                            news['TEXT'], article['maintext'])
+    text_sim = get_text_sim(SentenceTransformer('msmarco-distilbert-base-tas-b'), news['TEXT'], article['maintext'])
     articleUrl_textSim[article['url']] = text_sim
 
     return articleUrl_textSim
@@ -202,10 +227,12 @@ def compute_unimodal_sims(news, article):
 def filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim, searched_articles, max_num=3, threshold=90):
     filtered_searched_links = set()
 
-    article_urls = [article_url for articleUrl_textSim in list_of_articleUrl_textSim for article_url in
-                    articleUrl_textSim.keys()]
-    text_sims = [text_sim for articleUrl_textSim in list_of_articleUrl_textSim for text_sim in
-                 articleUrl_textSim.values()]
+    article_urls = [
+        article_url for articleUrl_textSim in list_of_articleUrl_textSim for article_url in articleUrl_textSim.keys()
+    ]
+    text_sims = [
+        text_sim for articleUrl_textSim in list_of_articleUrl_textSim for text_sim in articleUrl_textSim.values()
+    ]
 
     textSims_articleUrls = list(zip(text_sims, article_urls))
     textSims_articleUrls.sort(reverse=True)
@@ -240,7 +267,8 @@ def evidence_extraction(news, article, llm_key):
     # Use the first max_chars characters
     article_content = article_content[:20000]
 
-    with open('data/prompt_evidence_extraction.txt', 'r') as f:
+    prompt_evidence_path = os.path.join(DIR_PATH, 'data', 'prompt_evidence_extraction.txt')
+    with open(prompt_evidence_path, 'r') as f:
         prompt_format = f.read()
     prompt = prompt_format.replace('[ARTICLE_CONTENT]', article_content)
     prompt = prompt.replace('[NEWS_CONTENT]', f'news category: {news_category}, content: {news_text}')
@@ -255,17 +283,17 @@ def evidence_extraction(news, article, llm_key):
                 er_loc = i
             elif 'implicit refutation' in evidence.lower():
                 ce_loc = i
-        refute_evidence, context_evidence = evidences[er_loc+1:ce_loc], evidences[ce_loc+1:]
+        refute_evidence, context_evidence = evidences[er_loc + 1 : ce_loc], evidences[ce_loc + 1 :]
 
         refute_evidence_2 = []
         for i, s in enumerate(refute_evidence):
-            if 'NONE' in s or len(s)==0 or (len(s)>0 and s[0]!='-'):
+            if 'NONE' in s or len(s) == 0 or (len(s) > 0 and s[0] != '-'):
                 continue
             if article_time != '':
                 subs = ' Reference: ' + article_url + ' published on ' + article_time
             else:
                 subs = ' Reference: ' + article_url
-            if len(s)>1 and s[2] == "\"" and s[-1] == "\"":
+            if len(s) > 1 and s[2] == "\"" and s[-1] == "\"":
                 refute_evidence_2.append('- ' + s[3:-1] + subs)
             else:
                 refute_evidence_2.append(s + subs)
@@ -274,13 +302,13 @@ def evidence_extraction(news, article, llm_key):
 
         context_evidence_2 = []
         for i, s in enumerate(context_evidence):
-            if 'NONE' in s or len(s)==0 or (len(s)>0 and s[0]!='-'):
+            if 'NONE' in s or len(s) == 0 or (len(s) > 0 and s[0] != '-'):
                 continue
             if article_time != '':
                 subs = ' Reference: ' + article_url + ' published on ' + article_time
             else:
                 subs = ' Reference: ' + article_url
-            if len(s)>1 and s[2] == "\"" and s[-1] == "\"":
+            if len(s) > 1 and s[2] == "\"" and s[-1] == "\"":
                 context_evidence_2.append('- ' + s[3:-1] + subs)
             else:
                 context_evidence_2.append(s + subs)
@@ -293,11 +321,13 @@ def evidence_extraction(news, article, llm_key):
 
 
 def correction_generation(news, list_of_evidences, list_of_refute_evidences, llm_key):
+    no_retrieval_path = os.path.join(DIR_PATH, 'data', 'prompt_correction_generation_without_retrieval.txt')
+    with_retrieval_path = os.path.join(DIR_PATH, 'data', 'prompt_correction_generation_with_retrieval.txt')
     if len(list_of_refute_evidences) == 0:
-        with open('data/prompt_correction_generation_without_retrieval.txt', 'r') as f:
+        with open(no_retrieval_path, 'r') as f:
             prompt = f.read()
     else:
-        with open('data/prompt_correction_generation_with_retrieval.txt', 'r') as f:
+        with open(with_retrieval_path, 'r') as f:
             prompt = f.read()
         prompt = prompt.replace('[RELEVANT_FACTS]', '\n'.join(list_of_evidences))
 
@@ -318,6 +348,9 @@ if __name__ == '__main__':
     data_file_id = '1QSZ8WRe2747lzueN5vkDP3ohbJavUNCH'
     download_url = f'https://drive.google.com/uc?export=download&id={data_file_id}'
 
+    # Path of folder + path of api keys
+    api_keys_path = os.path.join(DIR_PATH, 'data', 'api_keys.json')
+
     # Read the file
     data = pd.read_csv(download_url, dtype=str, encoding='latin-1')
     data = data.fillna('')
@@ -325,7 +358,7 @@ if __name__ == '__main__':
     instance = data[data['ID'] == TEST_NEWS_ID].to_dict('records')[0]
 
     # Load API keys
-    with open('data/api_keys.json', 'r') as f:
+    with open(api_keys_path, 'r') as f:
         api_keys = json.load(f)
     llm_key = api_keys['gemini']
     # llm_key = api_keys['HuggingFace']
@@ -350,7 +383,9 @@ if __name__ == '__main__':
     refute_evidences, context_evidences = set(), set()
     for domain_priority in ['High', 'Medium', 'Low']:
         print('Search web pages with ' + domain_priority + ' priority...')
-        search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority+'-Priority'], instance, domain_priority)
+        search_results = query_search(
+            gsearch_key, api_keys['GoogleSearch'][domain_priority + '-Priority'], instance, domain_priority
+        )
 
         print('Start selecting retrieved web pages...')
 
@@ -390,8 +425,9 @@ if __name__ == '__main__':
         refute_evidences, context_evidences = set(), set()
         for domain_priority in ['High', 'Medium', 'Low']:
             print('Search web pages with ' + domain_priority + ' priority...')
-            search_results = query_search(gsearch_key, api_keys['GoogleSearch'][domain_priority + '-Priority'],
-                                            instance, domain_priority)
+            search_results = query_search(
+                gsearch_key, api_keys['GoogleSearch'][domain_priority + '-Priority'], instance, domain_priority
+            )
 
             print('Start selecting retrieved web pages...')
 
@@ -408,8 +444,9 @@ if __name__ == '__main__':
             print('Compute the similarity between web page and misinformation content...')
             params = [(instance, article) for article in searched_articles]
             list_of_articleUrl_textSim = pool.starmap(compute_unimodal_sims, params)
-            final_searched_articles = filter_search_results_by_unimodal_sim(list_of_articleUrl_textSim,
-                                                                            searched_articles)
+            final_searched_articles = filter_search_results_by_unimodal_sim(
+                list_of_articleUrl_textSim, searched_articles
+            )
             if final_searched_articles == []:
                 print('\t(no article qualified based on similarity)')
                 continue
@@ -437,7 +474,8 @@ if __name__ == '__main__':
     print('Generate correction with ' + str(len(refute_evidences)) + ' refutations...')
     instance['correction'] = correction_generation(instance, evidences, refute_evidences, llm_key)
 
-    with open('data/output/' + instance["ID"] + ".json", 'w') as f:
+    output_path = os.path.join(DIR_PATH, 'data', 'output', f"{instance['ID']}.json")
+    with open(output_path, 'w') as f:
         json.dump(instance, f, indent=4, sort_keys=True)
 
     print()
