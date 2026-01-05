@@ -1,31 +1,24 @@
 import os
-import re
 import json
 import time
-import pprint
 import string
 import requests
 import warnings
 import multiprocessing
 
-import numpy as np
 import pandas as pd
 
 from tqdm import tqdm
-from PIL import Image
-from io import BytesIO
 from google import genai
+from typing import Optional
 from bs4 import BeautifulSoup
+from datetime import datetime
 from newsplease import NewsPlease
-from typing import Union, Optional
-from datetime import timedelta, datetime
-from transformers import AutoFeatureExtractor, AutoModel
 from sentence_transformers import SentenceTransformer, util
 
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 
-# from serpapi import GoogleSearch  # type: ignore
 # import preprocessor as p
 # p.set_options(p.OPT.URL, p.OPT.RESERVED, p.OPT.EMOJI, p.OPT.SMILEY)
 
@@ -33,6 +26,15 @@ warnings.filterwarnings('ignore')
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_URL = f'https://drive.google.com/uc?export=download&id=1QSZ8WRe2747lzueN5vkDP3ohbJavUNCH'
+
+
+def download_news_articles() -> pd.DataFrame:
+    # Read the file
+    data = pd.read_csv(DOWNLOAD_URL, dtype=str, encoding='latin-1')
+    data = data.fillna('')
+
+    return data
 
 
 def gemini(api_key: str, prompt: str) -> str:
@@ -197,7 +199,6 @@ def query_search(api_key: str, search_engine_id: str, news: dict, domain_priorit
             search_results[qx] = google_programmable_search_outputs
         else:
             output = google_programmable_search(api_key, search_engine_id, qx)
-            print("OUTPUT:", output)
             print("\t(sent 1 request to google programmable search)")
             if 'items' in output.keys():
                 search_results[qx] = output
@@ -564,28 +565,20 @@ def get_article_publish_date(article: dict) -> datetime:
     return datetime.strptime(str(article['date_publish']), "%Y-%m-%d %H:%M:%S")
 
 
-if __name__ == '__main__':
-    TEST_NEWS_ID = '1'
-    data_file_id = '1QSZ8WRe2747lzueN5vkDP3ohbJavUNCH'
-    download_url = f'https://drive.google.com/uc?export=download&id={data_file_id}'
-
+def correct_article(TEST_NEWS_ID: int) -> str:
     # Path of folder + path of api keys
     api_keys_path = os.path.join(DIR_PATH, 'data', 'api_keys.json')
 
-    # Read the file
-    data = pd.read_csv(download_url, dtype=str, encoding='latin-1')
-    data = data.fillna('')
+    data = download_news_articles()
 
-    instance = data[data['ID'] == TEST_NEWS_ID].to_dict('records')[0]
+    instance = data[data['ID'] == str(TEST_NEWS_ID)].to_dict('records')[0]
 
     # Load API keys
     with open(api_keys_path, 'r') as f:
         api_keys = json.load(f)
 
     llm_key = api_keys['gemini']
-    serpapi_key = api_keys['SerpAPI']
     gsearch_key = api_keys['GoogleSearch']['Key']
-    # llm_key = api_keys['HuggingFace']
 
     # Open a browser for article crawling
     options = Options()
@@ -594,7 +587,10 @@ if __name__ == '__main__':
     driver.set_page_load_timeout(10)
 
     # Set the number of processes = 5
-    multiprocessing.set_start_method('spawn')
+    try:
+        multiprocessing.set_start_method('spawn')
+    except RuntimeError:
+        pass  # already set, ignore
     pool = multiprocessing.Pool(processes=5)
 
     print('Start correcting news')
@@ -704,8 +700,14 @@ if __name__ == '__main__':
     with open(output_path, 'w') as f:
         json.dump(instance, f, indent=4, sort_keys=True)
 
-    print()
-    print(instance['ID'])
-    print(instance['correction'])
+    # print()
+    # print(instance['ID'])
+    # print(instance['correction'])
 
     driver.quit()
+
+    return instance['correction']
+
+
+if __name__ == '__main__':
+    correct_article(1)
