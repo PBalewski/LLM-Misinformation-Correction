@@ -25,11 +25,19 @@ from selenium.webdriver.firefox.options import Options
 warnings.filterwarnings('ignore')
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
+# Path of repo
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
+# URL of dataset to download
 DOWNLOAD_URL = f'https://drive.google.com/uc?export=download&id=1QSZ8WRe2747lzueN5vkDP3ohbJavUNCH'
 
 
 def download_news_articles() -> pd.DataFrame:
+    """
+    Download dataset from Google Drive using defined URL.
+
+    Returns : pd.Dataframe
+        Dataset with articles downloaded from Google Drive using earlier defined URL.
+    """
     # Read the file
     data = pd.read_csv(DOWNLOAD_URL, dtype=str, encoding='latin-1')
     data = data.fillna('')
@@ -565,13 +573,51 @@ def get_article_publish_date(article: dict) -> datetime:
     return datetime.strptime(str(article['date_publish']), "%Y-%m-%d %H:%M:%S")
 
 
-def correct_article(TEST_NEWS_ID: int) -> str:
-    # Path of folder + path of api keys
+def correct_article(test_id: int) -> str:
+    """
+    Corrects a news article with the given ID by retrieving, analyzing, and generating corrections
+    based on online evidence and AI models.
+
+    The function performs the following steps:
+    1. Downloads news articles dataset and selects the article by `test_id`.
+    2. Loads API keys for Gemini and Google Custom Search.
+    3. Opens a browser instance for web crawling.
+    4. Sets up a multiprocessing pool to parallelize similarity computation and evidence extraction.
+    5. Generates search queries for the article content using Gemini.
+    6. Searches web pages using Google Custom Search with different priority domains (High, Medium, Low).
+    7. Filters and ranks retrieved web pages based on similarity to the news article.
+    8. Extracts evidence from selected web pages using Gemini.
+    9. Generates correction text based on the evidence.
+    10. Saves the corrected article along with extracted evidence to a JSON file in `data/output/`.
+
+    Parameters
+    ----------
+    test_id : int
+        ID of the news article to correct. Must correspond to an existing article in the dataset.
+
+    Returns
+    -------
+    str
+        Generated correction for the specified article.
+
+    Notes
+    -----
+    - ID of news articles must be between 1 and 573.
+    - Uses multiprocessing with the 'spawn' start method; ensures compatibility in Jupyter notebooks.
+    - Requires Selenium WebDriver (Firefox) for article crawling.
+    - Creates directories automatically if they do not exist (`data/output/` and intermediate web search files).
+    - Limits the number of retrieved refutations to at least 3 to stop early if sufficient evidence is found.
+    - Relies on external API keys stored in `data/api_keys.json`.
+    - All intermediate results (e.g., web search outputs) are cached to avoid repeated requests.
+    - Must be used with cautious because API calls are limited daily.
+    """
+
+    # Path of api keys
     api_keys_path = os.path.join(DIR_PATH, 'data', 'api_keys.json')
 
     data = download_news_articles()
 
-    instance = data[data['ID'] == str(TEST_NEWS_ID)].to_dict('records')[0]
+    instance = data[data['ID'] == str(test_id)].to_dict('records')[0]
 
     # Load API keys
     with open(api_keys_path, 'r') as f:
@@ -586,11 +632,11 @@ def correct_article(TEST_NEWS_ID: int) -> str:
     driver.implicitly_wait(5)
     driver.set_page_load_timeout(10)
 
-    # Set the number of processes = 5
+    # Set the number of processes = 5. If already spawned, then pass
     try:
         multiprocessing.set_start_method('spawn')
     except RuntimeError:
-        pass  # already set, ignore
+        pass
     pool = multiprocessing.Pool(processes=5)
 
     print('Start correcting news')
