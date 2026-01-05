@@ -197,6 +197,7 @@ def query_search(api_key: str, search_engine_id: str, news: dict, domain_priorit
             search_results[qx] = google_programmable_search_outputs
         else:
             output = google_programmable_search(api_key, search_engine_id, qx)
+            print("OUTPUT:", output)
             print("\t(sent 1 request to google programmable search)")
             if 'items' in output.keys():
                 search_results[qx] = output
@@ -696,6 +697,10 @@ if __name__ == '__main__':
     instance['correction'] = correction_generation(instance, evidences, refute_evidences, llm_key)
 
     output_path = os.path.join(DIR_PATH, 'data', 'output', f"{instance['ID']}.json")
+
+    # Make sure that directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     with open(output_path, 'w') as f:
         json.dump(instance, f, indent=4, sort_keys=True)
 
