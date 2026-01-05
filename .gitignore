@@ -1,3 +1,16 @@
+# virtual environments
 venv
+swsn_venv
+.venv
+
+# System files
 .DS_STORE
+
+# VS code files
+.vscode/
+
+# API keys
 model/data/api_keys.json
+
+model/data/web_page_content.json
+model/data/web_search_text
