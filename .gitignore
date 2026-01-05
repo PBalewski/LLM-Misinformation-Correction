@@ -3,6 +3,9 @@ venv
 swsn_venv
 .venv
 
+# pycache
+__pycache__
+
 # System files
 .DS_STORE
 
@@ -11,6 +14,9 @@ swsn_venv
 
 # API keys
 model/data/api_keys.json
+model/data/old_keys.json
 
+# directories created during runtime
 model/data/web_page_content.json
 model/data/web_search_text
+model/data/output
