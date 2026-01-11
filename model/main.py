@@ -551,7 +551,7 @@ def correction_generation(news: dict, list_of_evidences: list, list_of_refute_ev
     news_category = news['CATEGORY']
     news_text = news['TEXT']
 
-    prompt.replace('[NEWS_CONTENT]', f'news category: {news_category}, content: {news_text}')
+    prompt = prompt.replace('[NEWS_CONTENT]', f'news category: {news_category}, content: {news_text}')
 
     return gemini(llm_key, prompt)
 
