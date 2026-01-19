@@ -160,7 +160,7 @@ respective authors.
 
 ## ✍️ Authors
 
-— **Piotr Balewski** - [@PBalewski](https://github.com/PBalewski)
+- **Piotr Balewski** - [@PBalewski](https://github.com/PBalewski)
 - **Kuba Czech** — [@KubaCzech](https://github.com/KubaCzech)
 - **Vasyl Korzavatykh** — [@vasia-korz](https://github.com/vasia-korz)
 - **Wojciech Nagórka** — [@WojtekNagorka](https://github.com/WojtekNagorka)
